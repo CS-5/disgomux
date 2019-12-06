@@ -10,27 +10,19 @@ import (
 type (
 	// Mux is the multiplexer object. Initialized with New().
 	Mux struct {
-		Prefix     string
-		Commands   map[string]Command
-		errorTexts ErrorTexts
-		logger     Logger
+		Prefix         string
+		Commands       map[string]Command
+		SimpleCommands map[string]SimpleCommand
+		errorTexts     ErrorTexts
+		logger         Logger
 	}
 
-	// HandlerFunc is a placeholder type for defining middlewares or handlers
-	HandlerFunc func(*Context)
-
-	// Context is the contexual values supplied to middlewares and handlers
-	Context struct {
-		Command   string
-		Arguments []string
-		Session   *discordgo.Session
-		Message   *discordgo.MessageCreate
-	}
-
-	// ErrorTexts holds strings used when an error occurs
-	ErrorTexts struct {
-		CommandNotFound string
-		NoPermissions   string
+	// Command specifies the functions for a multiplexed command
+	Command interface {
+		Init(m *Mux)
+		Handle(ctx *Context)
+		Settings() CommandSettings
+		Permissions() Permissions
 	}
 
 	// Permissions holds permissions for a given command in whitelist format
@@ -41,30 +33,35 @@ type (
 		ChanIDs []string
 	}
 
-	// Command specifies the functions for a multiplexed command
-	Command interface {
-		Settings() CommandSettings
-		Init(m *Mux)
-		Handle(ctx *Context)
-		Done(m *Mux)
-		Permissions() Permissions
-	}
-
 	// CommandSettings contain command-specific settings the multiplexer should
 	// know.
 	CommandSettings struct {
-		Command string
+		Command, HelpText string
 	}
 
-	//TODO: This probably isn't a great logger implmentation, but I'm running
-	//out of ideas
+	// SimpleCommand contains the content and helptext of a logic-less command.
+	// Simple commands have no support for permissions.
+	SimpleCommand struct {
+		Content, HelpText string
+	}
+
+	// ErrorTexts holds strings used when an error occurs
+	ErrorTexts struct {
+		CommandNotFound, NoPermissions string
+	}
+
+	// Logger specifies the functions for a command logger
 	Logger interface {
 		Init(m *Mux)
 		MessageRecieved(ctx *Context)
-		Info(ctx *Context, message string)
-		Warn(ctx *Context, message string)
-		Error(ctx *Context, message string)
-		Done(m *Mux)
+	}
+
+	// Context is the contexual values supplied to middlewares and handlers
+	Context struct {
+		Command   string
+		Arguments []string
+		Session   *discordgo.Session
+		Message   *discordgo.MessageCreate
 	}
 )
 
@@ -171,15 +168,8 @@ func (m *Mux) Handle(
 		if err != nil {
 			session.ChannelMessageSend(
 				message.ChannelID,
-				"There was a weird issue. Check Bot log.",
+				"There was a weird issue. Maybe report it on Github?",
 			)
-			if m.logger != nil {
-				m.logger.Error(
-					ctx, fmt.Sprintf("Could not find member %q of Guild %q.",
-						message.Author.ID, message.GuildID,
-					),
-				)
-			}
 			return
 		}
 
