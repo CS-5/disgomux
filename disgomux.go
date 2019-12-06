@@ -60,9 +60,10 @@ type (
 	//out of ideas
 	Logger interface {
 		Init(m *Mux)
+		MessageRecieved(ctx *Context)
 		Info(ctx *Context, message string)
 		Warn(ctx *Context, message string)
-		Err(ctx *Context, message string)
+		Error(ctx *Context, message string)
 		Done(m *Mux)
 	}
 )
@@ -161,6 +162,9 @@ func (m *Mux) Handle(
 		Message:   message,
 	}
 
+	/* Call logger */
+	m.logger.MessageRecieved(ctx)
+
 	p := handler.Permissions()
 	if len(p.RoleIDs) != 0 {
 		member, err := session.GuildMember(message.GuildID, message.Author.ID)
@@ -170,7 +174,7 @@ func (m *Mux) Handle(
 				"There was a weird issue. Check Bot log.",
 			)
 			if m.logger != nil {
-				m.logger.Err(
+				m.logger.Error(
 					ctx, fmt.Sprintf("Could not find member %q of Guild %q.",
 						message.Author.ID, message.GuildID,
 					),
