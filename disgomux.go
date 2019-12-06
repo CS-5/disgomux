@@ -60,9 +60,9 @@ type (
 	//out of ideas
 	Logger interface {
 		Init(m *Mux)
-		Info(message string)
-		Warn(message string)
-		Err(message string)
+		Info(ctx *Context, message string)
+		Warn(ctx *Context, message string)
+		Err(ctx *Context, message string)
 		Done(m *Mux)
 	}
 )
@@ -154,6 +154,13 @@ func (m *Mux) Handle(
 		return
 	}
 
+	ctx := &Context{
+		Command:   command,
+		Arguments: args[1:],
+		Session:   session,
+		Message:   message,
+	}
+
 	p := handler.Permissions()
 	if len(p.RoleIDs) != 0 {
 		member, err := session.GuildMember(message.GuildID, message.Author.ID)
@@ -164,7 +171,7 @@ func (m *Mux) Handle(
 			)
 			if m.logger != nil {
 				m.logger.Err(
-					fmt.Sprintf("Could not find member %q of Guild %q.",
+					ctx, fmt.Sprintf("Could not find member %q of Guild %q.",
 						message.Author.ID, message.GuildID,
 					),
 				)
@@ -174,12 +181,7 @@ func (m *Mux) Handle(
 
 		for _, r := range member.Roles {
 			if arrayContains(p.RoleIDs, r) {
-				go handler.Handle(&Context{
-					Command:   command,
-					Arguments: args[1:],
-					Session:   session,
-					Message:   message,
-				})
+				go handler.Handle(ctx)
 				return
 			}
 		}
@@ -189,13 +191,7 @@ func (m *Mux) Handle(
 		)
 		return
 	}
-
-	go handler.Handle(&Context{
-		Command:   command,
-		Arguments: args[1:],
-		Session:   session,
-		Message:   message,
-	})
+	go handler.Handle(ctx)
 }
 
 // ChannelSend is a helper function for easily sending a message to the current
