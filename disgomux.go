@@ -21,13 +21,14 @@ type (
 	Command interface {
 		Init(m *Mux)
 		Handle(ctx *Context)
-		Settings() CommandSettings
-		Permissions() Permissions
+		HandleHelp(ctx *Context)
+		Settings() *CommandSettings
+		Permissions() *CommandPermissions
 	}
 
-	// Permissions holds permissions for a given command in whitelist format
-	// Currently in development, only supports RoleIDs at the moment.
-	Permissions struct {
+	// CommandPermissions holds permissions for a given command in whitelist
+	// format. Currently in development, only supports RoleIDs at the moment.
+	CommandPermissions struct {
 		UserIDs []string
 		RoleIDs []string
 		ChanIDs []string
@@ -42,7 +43,7 @@ type (
 	// SimpleCommand contains the content and helptext of a logic-less command.
 	// Simple commands have no support for permissions.
 	SimpleCommand struct {
-		Content, HelpText string
+		Command, Content, HelpText string
 	}
 
 	// ErrorTexts holds strings used when an error occurs
@@ -58,10 +59,10 @@ type (
 
 	// Context is the contexual values supplied to middlewares and handlers
 	Context struct {
-		Command   string
-		Arguments []string
-		Session   *discordgo.Session
-		Message   *discordgo.MessageCreate
+		Prefix, Command string
+		Arguments       []string
+		Session         *discordgo.Session
+		Message         *discordgo.MessageCreate
 	}
 )
 
@@ -72,9 +73,10 @@ func New(prefix string) (*Mux, error) {
 	}
 
 	return &Mux{
-		Prefix:   prefix,
-		Commands: make(map[string]Command),
-		logger:   nil,
+		Prefix:         prefix,
+		Commands:       make(map[string]Command),
+		SimpleCommands: make(map[string]SimpleCommand),
+		logger:         nil,
 		errorTexts: ErrorTexts{
 			CommandNotFound: "Command not found.",
 			NoPermissions:   "You do not have permission to use that command",
@@ -87,12 +89,24 @@ func (m *Mux) SetErrors(errorTexts ErrorTexts) {
 	m.errorTexts = errorTexts
 }
 
+/* TODO: Possibly switch parameters for register functions to pointers? */
+
 // Register registers one or more commands to the multiplexer
 func (m *Mux) Register(commands ...Command) {
 	for _, c := range commands {
 		cString := c.Settings().Command
 		if len(cString) != 0 {
 			m.Commands[cString] = c
+		}
+	}
+}
+
+// RegisterSimple registers one or more simple commands to the multiplexer
+func (m *Mux) RegisterSimple(simpleCommands ...SimpleCommand) {
+	for _, c := range simpleCommands {
+		cString := c.Command
+		if len(cString) != 0 {
+			m.SimpleCommands[cString] = c
 		}
 	}
 }
@@ -143,6 +157,12 @@ func (m *Mux) Handle(
 	args := strings.Split(message.Content, " ")
 	command := args[0][1:]
 
+	simple, ok := m.SimpleCommands[command]
+	if ok {
+		session.ChannelMessageSend(message.ChannelID, simple.Content)
+		return
+	}
+
 	handler, ok := m.Commands[command]
 	if !ok {
 		session.ChannelMessageSend(
@@ -153,6 +173,7 @@ func (m *Mux) Handle(
 	}
 
 	ctx := &Context{
+		Prefix:    m.Prefix,
 		Command:   command,
 		Arguments: args[1:],
 		Session:   session,
