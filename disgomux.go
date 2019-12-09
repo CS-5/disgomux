@@ -55,6 +55,8 @@ type (
 	Logger interface {
 		Init(m *Mux)
 		MessageRecieved(ctx *Context)
+		CommandRegistered(cs *CommandSettings)
+		InitializeComplete(m *Mux)
 	}
 
 	// Context is the contexual values supplied to middlewares and handlers
@@ -97,6 +99,7 @@ func (m *Mux) Register(commands ...Command) {
 		cString := c.Settings().Command
 		if len(cString) != 0 {
 			m.Commands[cString] = c
+			m.logger.CommandRegistered(c.Settings())
 		}
 	}
 }
@@ -132,6 +135,8 @@ func (m *Mux) Initialize(commands ...Command) {
 	for _, c := range commands {
 		c.Init(m)
 	}
+
+	m.logger.InitializeComplete(m)
 }
 
 // Handle is passed to DiscordGo to handle actions
