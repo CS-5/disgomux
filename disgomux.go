@@ -13,21 +13,22 @@ type (
 		Prefix         string
 		Commands       map[string]Command
 		SimpleCommands map[string]SimpleCommand
+		Middleware     []Middleware
 		errorTexts     ErrorTexts
-		logger         Logger
 	}
 
 	// Command specifies the functions for a multiplexed command
 	Command interface {
 		Init(m *Mux)
 		Handle(ctx *Context)
-		HandleHelp(ctx *Context)
+		HandleHelp(ctx *Context) bool
 		Settings() *CommandSettings
 		Permissions() *CommandPermissions
 	}
 
 	// CommandPermissions holds permissions for a given command in whitelist
-	// format. Currently in development, only supports RoleIDs at the moment.
+	// format. UserID takes priority over all other permissions. RoleID takes
+	// priority over ChanID.
 	CommandPermissions struct {
 		UserIDs []string
 		RoleIDs []string
@@ -51,14 +52,6 @@ type (
 		CommandNotFound, NoPermissions string
 	}
 
-	// Logger specifies the functions for a command logger
-	Logger interface {
-		Init(m *Mux)
-		MessageRecieved(ctx *Context)
-		CommandRegistered(cs *CommandSettings)
-		InitializeComplete(m *Mux)
-	}
-
 	// Context is the contexual values supplied to middlewares and handlers
 	Context struct {
 		Prefix, Command string
@@ -66,6 +59,10 @@ type (
 		Session         *discordgo.Session
 		Message         *discordgo.MessageCreate
 	}
+
+	// Middleware specifies a special middleware function that is called anytime
+	// handle() is called from DiscordGo
+	Middleware func(*Context)
 )
 
 // New initlaizes a new Mux object
@@ -78,12 +75,17 @@ func New(prefix string) (*Mux, error) {
 		Prefix:         prefix,
 		Commands:       make(map[string]Command),
 		SimpleCommands: make(map[string]SimpleCommand),
-		logger:         nil,
+		Middleware:     []Middleware{},
 		errorTexts: ErrorTexts{
 			CommandNotFound: "Command not found.",
-			NoPermissions:   "You do not have permission to use that command",
+			NoPermissions:   "You do not have permission to use that command.",
 		},
 	}, nil
+}
+
+// UseMiddleware adds a middleware to the multiplexer. //TODO: Improve this desc
+func (m *Mux) UseMiddleware(mw Middleware) {
+	m.Middleware = append(m.Middleware, mw)
 }
 
 // SetErrors sets the error texts for the multiplexer using the supplied struct
@@ -91,15 +93,12 @@ func (m *Mux) SetErrors(errorTexts ErrorTexts) {
 	m.errorTexts = errorTexts
 }
 
-/* TODO: Possibly switch parameters for register functions to pointers? */
-
 // Register registers one or more commands to the multiplexer
 func (m *Mux) Register(commands ...Command) {
 	for _, c := range commands {
 		cString := c.Settings().Command
 		if len(cString) != 0 {
 			m.Commands[cString] = c
-			m.logger.CommandRegistered(c.Settings())
 		}
 	}
 }
@@ -135,8 +134,6 @@ func (m *Mux) Initialize(commands ...Command) {
 	for _, c := range commands {
 		c.Init(m)
 	}
-
-	m.logger.InitializeComplete(m)
 }
 
 // Handle is passed to DiscordGo to handle actions
@@ -149,11 +146,17 @@ func (m *Mux) Handle(
 		return
 	}
 
+	/* Ignore if the message originated from a bot */
+	if message.Author.Bot {
+		return
+	}
+
 	/* Ignore if the message being handled originated from the bot */
 	if message.Author.ID == session.State.User.ID {
 		return
 	}
 
+	/* Ignore if the message doesn't have the prefix */
 	if !strings.HasPrefix(message.Content, m.Prefix) {
 		return
 	}
@@ -185,8 +188,12 @@ func (m *Mux) Handle(
 		Message:   message,
 	}
 
-	/* Call logger */
-	m.logger.MessageRecieved(ctx)
+	/* Call middlewares */
+	if len(m.Middleware) > 0 {
+		for _, mw := range m.Middleware {
+			mw(ctx)
+		}
+	}
 
 	p := handler.Permissions()
 	if len(p.RoleIDs) != 0 {
@@ -199,6 +206,13 @@ func (m *Mux) Handle(
 			return
 		}
 
+		/* Check if user explicitly has permission */
+		if arrayContains(p.UserIDs, member.User.ID) {
+			go handler.Handle(ctx)
+			return
+		}
+
+		/* Check if one of the user's roles has permission */
 		for _, r := range member.Roles {
 			if arrayContains(p.RoleIDs, r) {
 				go handler.Handle(ctx)
@@ -206,6 +220,13 @@ func (m *Mux) Handle(
 			}
 		}
 
+		/* Check if the channel has permission */
+		if arrayContains(p.ChanIDs, message.ChannelID) {
+			go handler.Handle(ctx)
+			return
+		}
+
+		/* Clearly the user doesn't have the correct permissions */
 		session.ChannelMessageSend(
 			message.ChannelID, m.errorTexts.NoPermissions,
 		)
@@ -216,14 +237,19 @@ func (m *Mux) Handle(
 
 // ChannelSend is a helper function for easily sending a message to the current
 // channel.
-func (ctx *Context) ChannelSend(message string) {
-	ctx.Session.ChannelMessageSend(ctx.Message.ChannelID, message)
+func (ctx *Context) ChannelSend(message string) (*discordgo.Message, error) {
+	return ctx.Session.ChannelMessageSend(ctx.Message.ChannelID, message)
 }
 
-// Logger allows a custom middleware logger function to be used
-func (m *Mux) Logger(l Logger) {
-	l.Init(m)
-	m.logger = l
+// ChannelSendf is a helper function like ChannelSend for sending a formatted
+// message to the current channel.
+func (ctx *Context) ChannelSendf(
+	format string,
+	a ...interface{},
+) (*discordgo.Message, error) {
+	return ctx.Session.ChannelMessageSend(
+		ctx.Message.ChannelID, fmt.Sprintf(format, a...),
+	)
 }
 
 func arrayContains(array []string, value string) bool {
