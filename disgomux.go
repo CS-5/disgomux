@@ -156,6 +156,12 @@ func (m *Mux) Handle(
 		return
 	}
 
+	/* Ignore if the message is in a DM */
+	// TODO: Make all these options
+	if message.GuildID == "" {
+		return
+	}
+
 	/* Ignore if the message doesn't have the prefix */
 	if !strings.HasPrefix(message.Content, m.Prefix) {
 		return
