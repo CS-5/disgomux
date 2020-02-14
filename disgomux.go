@@ -169,7 +169,7 @@ func (m *Mux) Handle(
 
 	/* Split the message on the space */
 	args := strings.Split(message.Content, " ")
-	command := args[0][1:]
+	command := strings.ToLower(args[0][1:])
 
 	simple, ok := m.SimpleCommands[command]
 	if ok {
