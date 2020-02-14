@@ -14,6 +14,7 @@ type (
 		Commands       map[string]Command
 		SimpleCommands map[string]SimpleCommand
 		Middleware     []Middleware
+		options        *Options
 		errorTexts     ErrorTexts
 	}
 
@@ -63,6 +64,15 @@ type (
 	// Middleware specifies a special middleware function that is called anytime
 	// handle() is called from DiscordGo
 	Middleware func(*Context)
+
+	// Options is a set of config options to use when handling a message. All
+	// properties true by default.
+	Options struct {
+		IgnoreBots       bool
+		IgnoreDMs        bool
+		IgnoreEmpty      bool
+		IgnoreNonDefault bool
+	}
 )
 
 // New initlaizes a new Mux object
@@ -80,7 +90,14 @@ func New(prefix string) (*Mux, error) {
 			CommandNotFound: "Command not found.",
 			NoPermissions:   "You do not have permission to use that command.",
 		},
+		options: &Options{true, true, true, true},
 	}, nil
+}
+
+// Options allows configuration of the multiplexer. Must be called before
+// Initialize()
+func (m *Mux) Options(opt *Options) {
+	m.options = opt
 }
 
 // UseMiddleware adds a middleware to the multiplexer. //TODO: Improve this desc
@@ -141,24 +158,28 @@ func (m *Mux) Handle(
 	session *discordgo.Session,
 	message *discordgo.MessageCreate,
 ) {
-	/* Ignore if the message is not a regular message */
-	if message.Type != discordgo.MessageTypeDefault || len(message.Content) == 0 {
-		return
-	}
-
-	/* Ignore if the message originated from a bot */
-	if message.Author.Bot {
-		return
-	}
-
 	/* Ignore if the message being handled originated from the bot */
 	if message.Author.ID == session.State.User.ID {
 		return
 	}
 
+	/* Ignore if the message has no content */
+	if m.options.IgnoreEmpty && len(message.Content) == 0 {
+		return
+	}
+
+	/* Ignore if the message is not default */
+	if m.options.IgnoreNonDefault && message.Type != discordgo.MessageTypeDefault {
+		return
+	}
+
+	/* Ignore if the message originated from a bot */
+	if m.options.IgnoreBots && message.Author.Bot {
+		return
+	}
+
 	/* Ignore if the message is in a DM */
-	// TODO: Make all these options
-	if message.GuildID == "" {
+	if m.options.IgnoreDMs && message.GuildID == "" {
 		return
 	}
 
