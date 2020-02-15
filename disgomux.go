@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/sahilm/fuzzy"
 )
 
 type (
@@ -15,6 +16,8 @@ type (
 		SimpleCommands map[string]SimpleCommand
 		Middleware     []Middleware
 		options        *Options
+		fuzzyMatch     bool
+		commandNames   []string
 		errorTexts     ErrorTexts
 	}
 
@@ -90,7 +93,8 @@ func New(prefix string) (*Mux, error) {
 			CommandNotFound: "Command not found.",
 			NoPermissions:   "You do not have permission to use that command.",
 		},
-		options: &Options{true, true, true, true},
+		options:    &Options{true, true, true, true},
+		fuzzyMatch: false,
 	}, nil
 }
 
@@ -127,6 +131,16 @@ func (m *Mux) RegisterSimple(simpleCommands ...SimpleCommand) {
 		if len(cString) != 0 {
 			m.SimpleCommands[cString] = c
 		}
+	}
+}
+
+// InitializeFuzzy both enables and builds a list of commands to fuzzy match
+// against. This _will_ mean taking a performance hit, so use with caution.
+func (m *Mux) InitializeFuzzy() {
+	m.fuzzyMatch = true
+
+	for k := range m.Commands {
+		m.commandNames = append(m.commandNames, k)
 	}
 }
 
@@ -200,10 +214,25 @@ func (m *Mux) Handle(
 
 	handler, ok := m.Commands[command]
 	if !ok {
-		session.ChannelMessageSend(
-			message.ChannelID,
-			m.errorTexts.CommandNotFound,
-		)
+		if m.fuzzyMatch {
+			var sb strings.Builder
+
+			for _, fzy := range fuzzy.Find(command, m.commandNames) {
+				sb.WriteString("- `" + fzy.Str + "`\n")
+			}
+
+			session.ChannelMessageSend(
+				message.ChannelID,
+				fmt.Sprintf(
+					"Command not found. Did you mean: \n%s", sb.String(),
+				))
+		} else {
+			session.ChannelMessageSend(
+				message.ChannelID,
+				m.errorTexts.CommandNotFound,
+			)
+		}
+
 		return
 	}
 
