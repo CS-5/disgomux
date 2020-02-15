@@ -218,20 +218,25 @@ func (m *Mux) Handle(
 			var sb strings.Builder
 
 			for _, fzy := range fuzzy.Find(command, m.commandNames) {
-				sb.WriteString("- `" + fzy.Str + "`\n")
+				sb.WriteString("- `!" + fzy.Str + "`\n")
 			}
 
-			session.ChannelMessageSend(
-				message.ChannelID,
-				fmt.Sprintf(
-					"Command not found. Did you mean: \n%s", sb.String(),
-				))
-		} else {
-			session.ChannelMessageSend(
-				message.ChannelID,
-				m.errorTexts.CommandNotFound,
-			)
+			if sb.Len() != 0 {
+				session.ChannelMessageSend(
+					message.ChannelID,
+					fmt.Sprintf(
+						"Command not found. Did you mean: \n%s", sb.String(),
+					),
+				)
+				return
+			}
+
 		}
+
+		session.ChannelMessageSend(
+			message.ChannelID,
+			m.errorTexts.CommandNotFound,
+		)
 
 		return
 	}
