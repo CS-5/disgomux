@@ -252,7 +252,7 @@ func (m *Mux) Handle(
 	/* Call middlewares */
 	if len(m.Middleware) > 0 {
 		for _, mw := range m.Middleware {
-			mw(ctx)
+			go mw(ctx)
 		}
 	}
 
